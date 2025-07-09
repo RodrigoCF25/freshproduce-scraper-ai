@@ -64,9 +64,18 @@ class FreshProduceArticlesScrapper(WebScapper):
             page_number = 0
             hrefs = []
 
+            # Go first to check if Article filter exists for that category
+            url = self.__build_filtered_url(category, page_number)
+            await page.goto(url)
+
+            
+            article_check_button = await page.query_selector("input[name=Article]")
+            if not article_check_button:
+                print(f"[INFO] There is no 'Article' checkbox for the category: {category}")
+                return (category, [])
+
             #Continue getting urls for articles if there is a next button and is not disabled
             while True:
-                #Go to the page
                 url = self.__build_filtered_url(category, page_number)
                 await page.goto(url)
                 await page.wait_for_selector("div.result-panel a", timeout=10_000)
@@ -76,7 +85,6 @@ class FreshProduceArticlesScrapper(WebScapper):
                 href_tasks = [link.get_attribute("href") for link in links]
                 current_hrefs = await asyncio.gather(*href_tasks)
                 hrefs.extend(filter(None, current_hrefs))
-
 
                 next_button = await page.query_selector('div.next button.score-button.secondary')
                 if not next_button:
@@ -94,6 +102,7 @@ class FreshProduceArticlesScrapper(WebScapper):
             return (category, [])
         finally:
             await self.__release_page_to_pool(page)
+
 
     #Get the data of an article
     async def __scrape_article(self, category: str, href: str):
@@ -130,11 +139,9 @@ class FreshProduceArticlesScrapper(WebScapper):
         try:
             content_div = await page.query_selector('div[data-epi-type="content"]')
             if content_div:
-                paragraph_elements = await content_div.query_selector_all("p")
-                text_tasks = [p.inner_text() for p in paragraph_elements]
-                raw_paragraphs = await asyncio.gather(*text_tasks)
-                full_text = "\n".join(raw_paragraphs)
-                return TextFormatter.clean_text(full_text)
+                text = await content_div.inner_text()
+                return text
+            
         except Exception as e:
             print(f"[ERROR] Extrayendo texto del artículo: {e}")
         return None
