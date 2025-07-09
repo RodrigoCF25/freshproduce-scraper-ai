@@ -1,7 +1,6 @@
 from scrapper.webScrapper import WebScapper
 from playwright.async_api import async_playwright, Page
 from models.article import Article
-from utils.text import TextFormatter
 import asyncio
 from asyncio import Semaphore
 
@@ -129,8 +128,8 @@ class FreshProduceArticlesScrapper(WebScapper):
         try:
             h1 = await page.query_selector("h1")
             if h1:
-                raw_title = await h1.inner_text()
-                return TextFormatter.clean_text(raw_title)
+                title = await h1.inner_text()
+                return title
         except Exception as e:
             print(f"[ERROR] Extrayendo título: {e}")
         return None
