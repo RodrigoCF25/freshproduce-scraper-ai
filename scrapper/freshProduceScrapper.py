@@ -1,95 +1,140 @@
 from scrapper.webScrapper import WebScapper
-from playwright.async_api import async_playwright
-import asyncio
+from playwright.async_api import async_playwright, Page
 from models.article import Article
 from utils.text import TextFormatter
+import asyncio
+from asyncio import Semaphore
 
-
+#Class for web scrapping the Articles of FreshProduce.com given some categories
 class FreshProduceArticlesScrapper(WebScapper):
-
-    def __init__(self,categories):
+    def __init__(self, categories: list[str], max_pages: int = 5):
         self.__base_url = "https://www.freshproduce.com"
         self.categories = categories
-    
+        self.max_pages = max_pages
+        self.page_pool: list[Page] = []
+        self.page_semaphore = Semaphore(max_pages)
+
     async def scrape(self) -> list[Article]:
-        articles = []
+        self.articles = []
         async with async_playwright() as p:
-            try:
-                browser = await p.chromium.launch(headless=True, slow_mo=200)
-                page = await browser.new_page()
+            self.browser = await p.chromium.launch(headless=True, slow_mo=200)
             
-                for category in self.categories:
-                    try:
-                        filtered_url = self.__build_filtered_url(category)
-                        await page.goto(filtered_url)
-                    
-                        await page.wait_for_selector("div.result-panel a")
-                        article_links = await page.query_selector_all("div.result-panel a")
+            #Create pool of pages
+            self.page_pool = [await self.browser.new_page() for _ in range(self.max_pages)]
 
-                        hrefs_tasks = (link.get_attribute("href") for link in article_links)
-                        hrefs = await asyncio.gather(*hrefs_tasks)
-                        hrefs = filter(lambda href: href, hrefs)
+            #Get all hrefs(article links) for each category
+            category_href_pairs = await asyncio.gather(*[
+                self.__get_hrefs_from_category(category) for category in self.categories
+            ])
 
-                        for href in hrefs:
-                            try:
-                                article_url = f"{self.__base_url}{href}"
-                                await page.goto(article_url)
-                                title_task = self.getTitle(page)
-                                full_article_text_task = self.get_full_article_text(page)
-                                title, full_article_text = await asyncio.gather(*[title_task,full_article_text_task])
-                                article = Article(title,article_url,category,full_article_text)
-                                articles.append(article)
-                                await page.go_back()
+            #Get each article info of each href(url)
+            tasks = []
+            for category, hrefs in category_href_pairs:
+                for href in hrefs:
+                    tasks.append(self.__scrape_article(category, href))
 
-                            except Exception as e:
-                                print(f"[ERROR] Al visitar artículo: {href} — {e}")
+            #Wait for articles been added to list
+            await asyncio.gather(*tasks)
 
-                    except Exception as e:
-                        print(f"[ERROR] Al procesar categoría '{category}': {e}")
+            await self.browser.close()
+            return self.articles
 
-            except Exception as e:
-                print(f"[ERROR] Al iniciar navegador o playwright: {e}")
+    #Deliver a page if available (page not being used)
+    async def __get_page_from_pool(self) -> Page:
+        async with self.page_semaphore:
+            while True:
+                for page in self.page_pool:
+                    if not hasattr(page, "_in_use") or not page._in_use:
+                        page._in_use = True
+                        return page
+                await asyncio.sleep(0.1)
 
-            finally:
-                await page.close()
-                
-        return articles
-
-
-    async def getTitle(self,page):
-        try:
-            pass
-            h1 = await page.query_selector("h1")
-            title = await h1.inner_text()
-            cleaned_title = TextFormatter.clean_text(title)
-            return cleaned_title
-        
-        except Exception as e:
-            print(f"Error extracting title: {e}")    
-
-        return None
-    
-    async def get_full_article_text(self, page):
-        try:
-            content_div = await page.query_selector('div[data-epi-type="content"]')
-
-            if content_div:
-                paragraph_elements = await content_div.query_selector_all('p')
-                text_tasks = (p.inner_text() for p in paragraph_elements)
-                
-                raw_paragraphs = await asyncio.gather(*text_tasks)
-                full_text = "\n".join(raw_paragraphs)
-                cleaned_text = TextFormatter.clean_text(full_text)
-                return cleaned_text
-            
-        
-        except Exception as e:
-            print(f"Error extracting paragraph text: {e}")
-        
-        return None
-
+    #Release page ownership
+    async def __release_page_to_pool(self, page: Page):
+        page._in_use = False
 
     def __build_filtered_url(self, category: str, page: int = 0) -> str:
-        formatted_category = "-".join(category.lower().strip().split(" "))
-        return f"{self.__base_url}/resources/{formatted_category}/?pageNumber={page}&filteredCategories=Article"
+        formatted = "-".join(category.lower().strip().split(" "))
+        return f"{self.__base_url}/resources/{formatted}/?pageNumber={page}&filteredCategories=Article"
 
+    
+    async def __get_hrefs_from_category(self, category: str) -> tuple[str, list[str]]:
+        page = await self.__get_page_from_pool()
+        try:
+            page_number = 0
+            hrefs = []
+
+            #Continue getting urls for articles if there is a next button and is not disabled
+            while True:
+                #Go to the page
+                url = self.__build_filtered_url(category, page_number)
+                await page.goto(url)
+                await page.wait_for_selector("div.result-panel a", timeout=10_000)
+
+                #Get all hrefs (links) for the articles and add them to list
+                links = await page.query_selector_all("div.result-panel a")
+                href_tasks = [link.get_attribute("href") for link in links]
+                current_hrefs = await asyncio.gather(*href_tasks)
+                hrefs.extend(filter(None, current_hrefs))
+
+
+                next_button = await page.query_selector('div.next button.score-button.secondary')
+                if not next_button:
+                    break
+                is_disabled = await next_button.get_attribute("disabled")
+                if is_disabled is not None:
+                    break
+
+                page_number += 1
+
+            return (category, hrefs)
+
+        except Exception as e:
+            print(f"[ERROR] Categoría {category}: {e}")
+            return (category, [])
+        finally:
+            await self.__release_page_to_pool(page)
+
+    #Get the data of an article
+    async def __scrape_article(self, category: str, href: str):
+        page = await self.__get_page_from_pool()
+        try:
+            article_url = f"{self.__base_url}{href}"
+            await page.goto(article_url)
+
+            # Get title and text
+            title_task = self.__get_title(page)
+            content_task = self.__get_full_article_text(page)
+            title, content = await asyncio.gather(title_task, content_task)
+
+            if title and content:
+                article = Article(title, article_url, category, content)
+                self.articles.append(article)
+
+        except Exception as e:
+            print(f"[ERROR] Artículo {href}: {e}")
+        finally:
+            await self.__release_page_to_pool(page)
+
+    async def __get_title(self, page: Page) -> str | None:
+        try:
+            h1 = await page.query_selector("h1")
+            if h1:
+                raw_title = await h1.inner_text()
+                return TextFormatter.clean_text(raw_title)
+        except Exception as e:
+            print(f"[ERROR] Extrayendo título: {e}")
+        return None
+
+    async def __get_full_article_text(self, page: Page) -> str | None:
+        try:
+            content_div = await page.query_selector('div[data-epi-type="content"]')
+            if content_div:
+                paragraph_elements = await content_div.query_selector_all("p")
+                text_tasks = [p.inner_text() for p in paragraph_elements]
+                raw_paragraphs = await asyncio.gather(*text_tasks)
+                full_text = "\n".join(raw_paragraphs)
+                return TextFormatter.clean_text(full_text)
+        except Exception as e:
+            print(f"[ERROR] Extrayendo texto del artículo: {e}")
+        return None
