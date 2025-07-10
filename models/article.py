@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Optional, List
 
 @dataclass
 class Article:
@@ -7,7 +7,17 @@ class Article:
     url: str
     category : str
     full_article_text : str
+    summary : Optional[str] = None
+    topics : Optional[List[str]] = None
 
+    def basic_info(self) -> dict[str, Any]:
+        return{
+            "title" : self.title,
+            "url" : self.url,
+            "category": self.category,
+            "full_article_text" : self.full_article_text
+        }
+    
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Article":
