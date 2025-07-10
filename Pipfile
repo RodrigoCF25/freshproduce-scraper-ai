@@ -5,6 +5,8 @@ name = "pypi"
 
 [packages]
 playwright = "*"
+python-dotenv = "*"
+google-genai = "*"
 
 [dev-packages]
 
