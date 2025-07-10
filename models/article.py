@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from typing import Any, Optional, List
 
 @dataclass
@@ -18,6 +18,13 @@ class Article:
             "full_article_text" : self.full_article_text
         }
     
+    def add_analysis(self, summary:str, topics: List[str]):
+        self.summary = summary
+        self.topics = topics
+
+    def full_info(self) -> dict[str, Any]:
+        return asdict(self)
+
 
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "Article":
@@ -26,7 +33,7 @@ class Article:
 
     def __repr__(self):
         return f"""Title: {self.title}
-        URL: {self.url}
-        Category: {self.category}
-        FullText: {self.full_article_text}
-        """
+URL: {self.url}
+Category: {self.category}
+FullText: {self.full_article_text}
+"""
