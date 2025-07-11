@@ -6,36 +6,69 @@ import asyncio
 
 # Class for web scrapping the Articles of FreshProduce.com given some categories
 class FreshProduceArticlesScraper(WebScapper):
-    def __init__(self, categories: list[str], max_pages: int = 1):
+    """
+    Scrapes articles data from FreshProduce.com based on given categories.
+    """
+
+    def __init__(self, categories: list[str], max_pages: int = 5):
         self.__base_url = "https://www.freshproduce.com"
         self.categories = categories
         self.max_pages = max_pages
-        self.articles: list[Article] = []
         self.browser_manager = BrowserManager(max_pages)
 
     async def scrape(self) -> list[Article]:
-        await self.browser_manager.launch(headless=True, slow_mo=200)
+        """
+        Starts the scraping process for all specified categories.
 
-        # Get all hrefs (article links) for each category
-        category_href_pairs = await asyncio.gather(*[
-            self.__get_hrefs_from_category(category) for category in self.categories
-        ])
+        Returns:
+            list[Article]: List of extracted Article instances.
+        """
+        try:
+            await self.browser_manager.launch(headless=True, slow_mo=200)
 
-        # Get each article info from each href (URL)
-        tasks = []
-        for category, hrefs in category_href_pairs:
-            for href in hrefs:
-                tasks.append(self.__scrape_article(category, href))
+            # Get all hrefs (article links) for each category
+            category_href_pairs = await asyncio.gather(*[
+                self.__get_hrefs_from_category(category) for category in self.categories
+            ])
 
-        await asyncio.gather(*tasks)
-        await self.browser_manager.close()
-        return self.articles
+            # Get each article info from each href (URL)
+            tasks = []
+            for category, hrefs in category_href_pairs:
+                for href in hrefs:
+                    tasks.append(self.__scrape_article(category, href))
 
-    def __build_filtered_url(self, category: str, page: int = 0) -> str:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            successful = list(filter(lambda article: article is not None, results))
+            failed = len(results) - len(successful)
+            print(f"[INFO] Successfully scraped {len(successful)} articles. Failed: {failed}")
+            articles = successful
+            return articles
+
+
+        except Exception as e:
+            print(f"[ERROR] Scraping process failed: {e}")
+
+        finally:
+            await self.browser_manager.close()
+
+        return []
+
+
+    def __build_filtered_url(self, category: str, page_number: int = 0) -> str:
         formatted = "-".join(category.lower().strip().split(" "))
-        return f"{self.__base_url}/resources/{formatted}/?pageNumber={page}&filteredCategories=Article"
+        return f"{self.__base_url}/resources/{formatted}/?pageNumber={page_number}&filteredCategories=Article"
 
     async def __get_hrefs_from_category(self, category: str) -> tuple[str, list[str]]:
+        """
+            Retrieves all article hrefs for a given category
+
+            Args:
+                category (str): The category to scrape links from.
+
+            Returns:
+                tuple[str, list[str]]: The category and list of relative href strings.
+        """
+
         page = await self.browser_manager.get_page()
         try:
             page_number = 0
@@ -74,7 +107,17 @@ class FreshProduceArticlesScraper(WebScapper):
         finally:
             await self.browser_manager.release_page(page)
 
-    async def __scrape_article(self, category: str, href: str):
+    async def __scrape_article(self, category: str, href: str) -> Article | None:
+        """
+        Scrapes the title and full text of an article given its href.
+
+        Args:
+            category (str): The category the article belongs to.
+            href (str): The relative path to the article.
+
+        Returns:
+            Article | None: The extracted Article object, or None if extraction failed.
+        """
         page = await self.browser_manager.get_page()
         try:
             article_url = f"{self.__base_url}{href}"
@@ -85,15 +128,27 @@ class FreshProduceArticlesScraper(WebScapper):
             title, content = await asyncio.gather(title_task, content_task)
 
             if title and content:
-                article = Article(title, article_url, category, content)
-                self.articles.append(article)
+                return Article(title, article_url, category, content)
 
         except Exception as e:
             print(f"[ERROR] Article {href}: {e}")
         finally:
             await self.browser_manager.release_page(page)
 
+        return None
+
+
     async def __get_title(self, page) -> str | None:
+        """
+        Extracts the title from the article page.
+
+        Args:
+            page (Page): The Playwright page object currently loaded with the article.
+
+        Returns:
+            str | None: The title text if found, otherwise None.
+        """
+        
         try:
             h1 = await page.query_selector("h1")
             return await h1.inner_text() if h1 else None
@@ -102,6 +157,15 @@ class FreshProduceArticlesScraper(WebScapper):
             return None
 
     async def __get_full_article_text(self, page) -> str | None:
+        """
+        Extracts the full body content from the article page.
+
+        Args:
+            page (Page): The Playwright page object currently loaded with the article.
+
+        Returns:
+            str | None: The largest text block found in the article content, or None.
+        """
         try:
             content_divs = await page.query_selector_all('div[data-epi-type="content"]')
             if content_divs:
