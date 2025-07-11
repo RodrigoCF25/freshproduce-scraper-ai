@@ -6,6 +6,7 @@ from google.genai import types
 
 class Gemini:
     def __init__(self):
+        #Load API KEY
         load_dotenv()
         api_key = os.getenv("GEMINI_API_KEY")
         if not api_key:
@@ -48,7 +49,7 @@ class Gemini:
 
             raw_text = response.text.strip()
 
-            #si viene con markdown como ```json ... ```
+            
             if raw_text.startswith("```"):
                 raw_text = raw_text.strip("```").strip()
                 if raw_text.lower().startswith("json"):
