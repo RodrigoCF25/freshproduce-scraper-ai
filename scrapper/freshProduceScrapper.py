@@ -1,6 +1,6 @@
 from scrapper.webScrapper import WebScapper
 from models.article import Article
-from browser.browserManager import BrowserManager  # Asegúrate de tener este archivo y clase en tu proyecto
+from browser.browserManager import BrowserManager
 
 import asyncio
 

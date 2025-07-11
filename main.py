@@ -1,5 +1,4 @@
 from scrapper.freshProduceScrapper import FreshProduceArticlesScraper
-from models.article import Article
 from fileutils.csvHandler import CSVHandler
 import asyncio
 from ai.gemini import Gemini
