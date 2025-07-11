@@ -1,11 +1,11 @@
-from scrapper.webScrapper import WebScapper
+from scraper.webScraper import WebScaper
 from models.article import Article
 from browser.browserManager import BrowserManager
 
 import asyncio
 
 # Class for web scrapping the Articles of FreshProduce.com given some categories
-class FreshProduceArticlesScraper(WebScapper):
+class FreshProduceArticlesScraper(WebScaper):
     """
     Scrapes articles data from FreshProduce.com based on given categories.
     """

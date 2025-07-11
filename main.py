@@ -1,4 +1,4 @@
-from scrapper.freshProduceScrapper import FreshProduceArticlesScraper
+from scraper.freshProduceScrapper import FreshProduceArticlesScraper
 from fileutils.csvHandler import CSVHandler
 import asyncio
 from ai.gemini import Gemini
