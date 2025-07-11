@@ -50,7 +50,7 @@ In the root directory, create a .env file and add your Gemini API key:
    ```
 
 If you want to exit the virtual environment:
-   ````
+   ```
    exit
    ```
 
