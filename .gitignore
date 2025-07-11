@@ -1,4 +1,5 @@
 .env
 ./venv
+Pipfile.lock
 scraped_data.csv
 analysis_summary.csv
